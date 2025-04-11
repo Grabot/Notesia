@@ -133,10 +133,10 @@ class NotificationService {
       android: androidDetails,
     );
     
-    // Show notification
+    // Show notification with just the note title, removing redundant "Timer:" prefix
     _flutterLocalNotificationsPlugin.show(
       note.id.hashCode,
-      'Timer: ${note.title}',
+      note.title,  // Changed from 'Timer: ${note.title}' to just note.title
       TimerUtils.formatDuration(note.remainingTime),
       notificationDetails,
       payload: note.id,
