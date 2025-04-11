@@ -132,11 +132,14 @@ class NotesProvider with ChangeNotifier {
   }
 
   // Handle notification actions
-  Future<void> handleNotificationAction(int notificationId, String actionKey) async {
-    final note = getNoteByNotificationId(notificationId);
+  Future<void> handleNotificationAction(String noteId) async {
+    final note = getNoteById(noteId);
     if (note != null) {
-      if (actionKey == 'PAUSE') {
-        await pauseTimer(note.id);
+      // For now just open the note or update notification
+      // More specific actions like pause/resume can be added with buttons in notification layout
+      if (note.isTimerActive && !note.isTimerCompleted) {
+        // This will trigger a refresh of the notification with more details
+        _notificationService.startTimerNotification(note);
       }
     }
   }

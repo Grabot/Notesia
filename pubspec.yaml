@@ -38,7 +38,7 @@ dependencies:
   shared_preferences: ^2.2.2
   intl: ^0.20.2
   uuid: ^4.3.3
-  awesome_notifications: ^0.10.1
+  flutter_local_notifications: ^19.0.0
 
 dev_dependencies:
   flutter_test:
