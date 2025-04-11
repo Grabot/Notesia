@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import '../services/background_task.dart';
 import 'timer_utils.dart';
 import 'note_model.dart';
 
@@ -16,15 +17,12 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   
   // Channel IDs
-  static const String timerChannelId = 'timer_channel';
+  static const String timerChannelId = 'notesia_timer_channel';
   static const String timerChannelName = 'Timer Notifications';
   static const String timerChannelDesc = 'Shows active timer notifications';
   
-  // Timer update interval in seconds (update every second)
-  static const int updateInterval = 1;
-  
-  // Map of active timer notifications with noteId as key and timer as value
-  final Map<String, Timer> _activeTimerNotifications = {};
+  // Map to track active notes with timers
+  final Map<String, NoteModel> _activeNotes = {};
   
   // Initialize notification service
   Future<void> init() async {
@@ -48,11 +46,26 @@ class NotificationService {
       initializationSettings,
       onDidReceiveNotificationResponse: _onNotificationTapped,
     );
+
+    // Create notification channel
+    final AndroidFlutterLocalNotificationsPlugin? androidPlugin =
+        _flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    
+    if (androidPlugin != null) {
+      await androidPlugin.createNotificationChannel(
+        const AndroidNotificationChannel(
+          timerChannelId,
+          timerChannelName,
+          description: timerChannelDesc,
+          importance: Importance.low,
+        ),
+      );
+    }
   }
   
   void _onNotificationTapped(NotificationResponse details) {
     // Handle notification taps here or forward to appropriate handler
-    // This could be expanded to handle the note ID from the payload
     final payload = details.payload;
     if (payload != null) {
       // Forward to handler
@@ -81,41 +94,30 @@ class NotificationService {
     return (iosResult ?? false) || (androidResult ?? false);
   }
   
-  // Start timer notification
-  void startTimerNotification(NoteModel note) {
+  // Start timer notification with background task
+  void startTimerNotification(NoteModel note) async {
     // Cancel existing timer if there is one
     cancelTimerNotification(note.id);
     
-    // Create initial notification
-    _createOrUpdateNotification(note);
+    // Save reference to active note
+    _activeNotes[note.id] = note;
     
-    // Create a new periodic timer to update the notification
-    _activeTimerNotifications[note.id] = Timer.periodic(
-      const Duration(seconds: updateInterval),
-      (_) => _updateTimerNotification(note),
-    );
+    // Show initial notification
+    await _showTimerRunningNotification(note.id, note.title, note.remainingTime);
+    
+    // Register with background task
+    await addActiveTimer(note.id, note.title, note.timerDuration);
   }
   
-  // Update timer notification
-  void _updateTimerNotification(NoteModel note) {
-    if (!note.isTimerActive || note.isTimerCompleted) {
-      // Timer is no longer active or completed, cancel the notification
-      cancelTimerNotification(note.id);
-      
-      // If timer completed, show completion notification
-      if (note.isTimerCompleted) {
-        _showTimerCompletedNotification(note);
-      }
-      return;
+  // Update timer notification manually (for immediate UI updates)
+  void updateTimerNotification(NoteModel note) async {
+    if (note.isTimerActive && !note.isTimerCompleted) {
+      await _showTimerRunningNotification(note.id, note.title, note.remainingTime);
     }
-    
-    // Update notification with new time
-    _createOrUpdateNotification(note);
   }
   
-  // Create or update notification
-  void _createOrUpdateNotification(NoteModel note) {
-    // Android-specific notification details
+  // Show running timer notification
+  Future<void> _showTimerRunningNotification(String id, String title, int remainingSeconds) async {
     final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       timerChannelId,
       timerChannelName,
@@ -125,66 +127,43 @@ class NotificationService {
       playSound: false,
       enableVibration: false,
       onlyAlertOnce: true,
-      ongoing: true, // This makes it sticky
+      ongoing: true,
       autoCancel: false,
     );
     
-    final NotificationDetails notificationDetails = NotificationDetails(
-      android: androidDetails,
-    );
+    final NotificationDetails notificationDetails = NotificationDetails(android: androidDetails);
     
-    // Show notification with just the note title, removing redundant "Timer:" prefix
-    _flutterLocalNotificationsPlugin.show(
-      note.id.hashCode,
-      note.title,  // Changed from 'Timer: ${note.title}' to just note.title
-      TimerUtils.formatDuration(note.remainingTime),
+    await _flutterLocalNotificationsPlugin.show(
+      id.hashCode,
+      title,
+      TimerUtils.formatDuration(remainingSeconds),
       notificationDetails,
-      payload: note.id,
+      payload: id,
     );
   }
   
-  // Show timer completed notification
-  void _showTimerCompletedNotification(NoteModel note) {
-    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      timerChannelId,
-      timerChannelName,
-      channelDescription: timerChannelDesc,
-      importance: Importance.high,
-      priority: Priority.high,
-      playSound: true,
-      enableVibration: true,
-      autoCancel: true,
-    );
+  // Cancel timer notification
+  void cancelTimerNotification(String noteId) async {
+    // Remove from active notes
+    _activeNotes.remove(noteId);
     
-    final NotificationDetails notificationDetails = NotificationDetails(
-      android: androidDetails,
-    );
+    // Cancel timer in background task
+    await removeActiveTimer(noteId);
     
-    _flutterLocalNotificationsPlugin.show(
-      note.id.hashCode,
-      'Timer Finished',
-      '${note.title} timer has completed!',
-      notificationDetails,
-      payload: note.id,
-    );
-  }
-  
-  // Cancel timer notification for a specific noteId
-  void cancelTimerNotification(String noteId) {
-    if (_activeTimerNotifications.containsKey(noteId)) {
-      _activeTimerNotifications[noteId]?.cancel();
-      _activeTimerNotifications.remove(noteId);
-      _flutterLocalNotificationsPlugin.cancel(noteId.hashCode);
-    }
+    // Cancel immediate notification
+    await _flutterLocalNotificationsPlugin.cancel(noteId.hashCode);
   }
   
   // Cancel all timer notifications
-  void cancelAllTimerNotifications() {
-    for (final timer in _activeTimerNotifications.values) {
-      timer.cancel();
-    }
-    _activeTimerNotifications.clear();
-    _flutterLocalNotificationsPlugin.cancelAll();
+  void cancelAllTimerNotifications() async {
+    _activeNotes.clear();
+    await removeAllActiveTimers();
+    await _flutterLocalNotificationsPlugin.cancelAll();
+  }
+  
+  // Sync with active timers from background task
+  Future<void> syncWithBackgroundService() async {
+    // Nothing to do here now - workmanager handles persistence
   }
   
   // Handle notification actions

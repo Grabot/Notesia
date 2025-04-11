@@ -39,6 +39,13 @@ dependencies:
   intl: ^0.20.2
   uuid: ^4.3.3
   flutter_local_notifications: ^19.0.0
+  flutter_background_service: ^5.1.0
+  flutter_background_service_android: ^6.3.0
+  workmanager:
+    git:
+      url: https://github.com/fluttercommunity/flutter_workmanager.git
+      path: workmanager
+      ref: main
 
 dev_dependencies:
   flutter_test:

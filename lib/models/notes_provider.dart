@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'note_model.dart';
 import 'notification_service.dart';
+import '../services/background_task.dart';
 
 class NotesProvider with ChangeNotifier {
   List<NoteModel> _notes = [];
@@ -11,7 +12,55 @@ class NotesProvider with ChangeNotifier {
   final NotificationService _notificationService = NotificationService();
 
   NotesProvider() {
-    loadNotes();
+    // Loading will happen in init now
+  }
+
+  // Initialize provider
+  Future<void> init() async {
+    await loadNotes();
+    _checkActiveTimers();
+  }
+
+  // Check if any active timers need to be updated
+  void _checkActiveTimers() async {
+    // Load active timers from background task storage
+    final prefs = await SharedPreferences.getInstance();
+    final timersJson = prefs.getString(ACTIVE_TIMERS_KEY);
+    
+    if (timersJson != null && timersJson.isNotEmpty) {
+      final Map<String, dynamic> activeTimers = json.decode(timersJson);
+      
+      // Update local notes based on active timers
+      bool hasChanges = false;
+      
+      for (final entry in activeTimers.entries) {
+        final noteId = entry.key;
+        final timer = entry.value;
+        
+        // Find the note in the list
+        final noteIndex = _notes.indexWhere((note) => note.id == noteId);
+        if (noteIndex >= 0) {
+          final note = _notes[noteIndex];
+          final startTime = DateTime.fromMillisecondsSinceEpoch(timer['startTime']);
+          final duration = timer['duration'] as int;
+          
+          // Check if note should be active but isn't
+          if (!note.isTimerActive) {
+            _notes[noteIndex] = note.copyWith(
+              isTimerActive: true,
+              timerStartedAt: startTime,
+              timerDuration: duration,
+            );
+            hasChanges = true;
+          }
+        }
+      }
+      
+      // Notify listeners if there were changes
+      if (hasChanges) {
+        notifyListeners();
+      }
+    }
   }
 
   List<NoteModel> get notes => [..._notes];
@@ -135,11 +184,18 @@ class NotesProvider with ChangeNotifier {
   Future<void> handleNotificationAction(String noteId) async {
     final note = getNoteById(noteId);
     if (note != null) {
+      // Update timer state if needed (in case it completed in the background)
+      if (note.isTimerCompleted) {
+        note.resetTimer();
+        notifyListeners();
+        await _saveNotesToStorage();
+      }
+      
       // For now just open the note or update notification
       // More specific actions like pause/resume can be added with buttons in notification layout
       if (note.isTimerActive && !note.isTimerCompleted) {
-        // This will trigger a refresh of the notification with more details
-        _notificationService.startTimerNotification(note);
+        // This will trigger a refresh of the notification
+        _notificationService.updateTimerNotification(note);
       }
     }
   }
