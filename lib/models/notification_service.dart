@@ -20,22 +20,11 @@ class NotificationService {
   static const String timerChannelName = 'Timer Notifications';
   static const String timerChannelDesc = 'Shows active timer notifications';
   
-  // Timer update interval in seconds (internal updates happen every second)
+  // Timer update interval in seconds (update every second)
   static const int updateInterval = 1;
-  
-  // We'll update the progress bar more frequently but text content less often
-  static const int progressUpdateInterval = 5; // Update progress every 5 seconds
-  static const int fullContentUpdateInterval = 30; // Full content update every 30 seconds
   
   // Map of active timer notifications with noteId as key and timer as value
   final Map<String, Timer> _activeTimerNotifications = {};
-  
-  // Map to track last time the notification was visibly updated
-  final Map<String, DateTime> _lastProgressUpdates = {};
-  final Map<String, DateTime> _lastFullContentUpdates = {};
-  
-  // Global map to store progress percent for each note
-  final Map<String, double> _progressPercents = {};
   
   // Initialize notification service
   Future<void> init() async {
@@ -97,30 +86,14 @@ class NotificationService {
     // Cancel existing timer if there is one
     cancelTimerNotification(note.id);
     
-    // Calculate initial progress
-    _updateProgressPercent(note);
-    
-    // Create initial notification with full content
-    _createInitialNotification(note);
+    // Create initial notification
+    _createOrUpdateNotification(note);
     
     // Create a new periodic timer to update the notification
     _activeTimerNotifications[note.id] = Timer.periodic(
       const Duration(seconds: updateInterval),
       (_) => _updateTimerNotification(note),
     );
-  }
-  
-  // Calculate and store progress percent
-  void _updateProgressPercent(NoteModel note) {
-    final int remaining = note.remainingTime;
-    final int total = note.timerDuration;
-    // Calculate progress as percentage of time elapsed
-    final double progressPercent = total > 0 
-        ? ((total - remaining) * 100 / total).roundToDouble() 
-        : 0.0;
-    
-    // Store the progress percent
-    _progressPercents[note.id] = progressPercent;
   }
   
   // Update timer notification
@@ -136,49 +109,19 @@ class NotificationService {
       return;
     }
     
-    // Always update the progress percent calculation
-    _updateProgressPercent(note);
-    
-    final now = DateTime.now();
-    final lastProgressUpdate = _lastProgressUpdates[note.id] ?? DateTime.fromMillisecondsSinceEpoch(0);
-    final lastFullUpdate = _lastFullContentUpdates[note.id] ?? DateTime.fromMillisecondsSinceEpoch(0);
-    
-    final secondsSinceProgressUpdate = now.difference(lastProgressUpdate).inSeconds;
-    final secondsSinceFullUpdate = now.difference(lastFullUpdate).inSeconds;
-    
-    // Always update more frequently when timer is about to end
-    final bool isNearCompletion = note.remainingTime <= 10;
-    
-    // Decide what kind of update to perform
-    if (secondsSinceFullUpdate >= fullContentUpdateInterval || isNearCompletion) {
-      // Time for a full content update (including text)
-      _updateFullNotification(note);
-      _lastFullContentUpdates[note.id] = now;
-      _lastProgressUpdates[note.id] = now; // Reset progress update time as well
-    } else if (secondsSinceProgressUpdate >= progressUpdateInterval) {
-      // Just update the progress
-      _updateProgressOnly(note);
-      _lastProgressUpdates[note.id] = now;
-    }
+    // Update notification with new time
+    _createOrUpdateNotification(note);
   }
   
-  // Create the initial notification with full content
-  void _createInitialNotification(NoteModel note) {
-    // Record update times
-    final now = DateTime.now();
-    _lastFullContentUpdates[note.id] = now;
-    _lastProgressUpdates[note.id] = now;
-    
-    // Android-specific notification details with progress indicator
+  // Create or update notification
+  void _createOrUpdateNotification(NoteModel note) {
+    // Android-specific notification details
     final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       timerChannelId,
       timerChannelName,
       channelDescription: timerChannelDesc,
       importance: Importance.low,
       priority: Priority.low,
-      showProgress: true,
-      maxProgress: 100,
-      progress: _progressPercents[note.id]?.toInt() ?? 0,
       playSound: false,
       enableVibration: false,
       onlyAlertOnce: true,
@@ -190,73 +133,7 @@ class NotificationService {
       android: androidDetails,
     );
     
-    // Show initial notification
-    _flutterLocalNotificationsPlugin.show(
-      note.id.hashCode,
-      'Timer: ${note.title}',
-      TimerUtils.formatDuration(note.remainingTime),
-      notificationDetails,
-      payload: note.id,
-    );
-  }
-  
-  // Update just the progress bar (minimal update to avoid disruption)
-  void _updateProgressOnly(NoteModel note) {
-    // Android-specific notification details with progress indicator
-    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      timerChannelId,
-      timerChannelName,
-      channelDescription: timerChannelDesc,
-      importance: Importance.low,
-      priority: Priority.low,
-      showProgress: true,
-      maxProgress: 100,
-      progress: _progressPercents[note.id]?.toInt() ?? 0,
-      playSound: false,
-      enableVibration: false,
-      onlyAlertOnce: true,
-      ongoing: true,
-      autoCancel: false,
-    );
-    
-    final NotificationDetails notificationDetails = NotificationDetails(
-      android: androidDetails,
-    );
-    
-    // Show updated notification with only progress change
-    _flutterLocalNotificationsPlugin.show(
-      note.id.hashCode,
-      'Timer: ${note.title}',
-      TimerUtils.formatDuration(note.remainingTime),
-      notificationDetails,
-      payload: note.id,
-    );
-  }
-  
-  // Full notification update (updated body text and progress)
-  void _updateFullNotification(NoteModel note) {
-    // Android-specific notification details with progress indicator
-    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      timerChannelId,
-      timerChannelName,
-      channelDescription: timerChannelDesc,
-      importance: Importance.low,
-      priority: Priority.low,
-      showProgress: true,
-      maxProgress: 100,
-      progress: _progressPercents[note.id]?.toInt() ?? 0,
-      playSound: false,
-      enableVibration: false,
-      onlyAlertOnce: true,
-      ongoing: true,
-      autoCancel: false,
-    );
-    
-    final NotificationDetails notificationDetails = NotificationDetails(
-      android: androidDetails,
-    );
-    
-    // Show fully updated notification with new body text
+    // Show notification
     _flutterLocalNotificationsPlugin.show(
       note.id.hashCode,
       'Timer: ${note.title}',
@@ -268,11 +145,6 @@ class NotificationService {
   
   // Show timer completed notification
   void _showTimerCompletedNotification(NoteModel note) {
-    // Clean up the tracking maps
-    _lastProgressUpdates.remove(note.id);
-    _lastFullContentUpdates.remove(note.id);
-    _progressPercents.remove(note.id);
-    
     final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       timerChannelId,
       timerChannelName,
@@ -302,9 +174,6 @@ class NotificationService {
     if (_activeTimerNotifications.containsKey(noteId)) {
       _activeTimerNotifications[noteId]?.cancel();
       _activeTimerNotifications.remove(noteId);
-      _lastProgressUpdates.remove(noteId);
-      _lastFullContentUpdates.remove(noteId);
-      _progressPercents.remove(noteId);
       _flutterLocalNotificationsPlugin.cancel(noteId.hashCode);
     }
   }
@@ -315,9 +184,6 @@ class NotificationService {
       timer.cancel();
     }
     _activeTimerNotifications.clear();
-    _lastProgressUpdates.clear();
-    _lastFullContentUpdates.clear();
-    _progressPercents.clear();
     _flutterLocalNotificationsPlugin.cancelAll();
   }
   
