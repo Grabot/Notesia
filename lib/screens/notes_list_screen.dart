@@ -101,110 +101,219 @@ class NoteListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Dismissible(
-      key: Key(note.id),
-      background: Container(
-        color: Colors.red,
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        child: const Icon(
-          Icons.delete,
-          color: Colors.white,
-          size: 30,
-        ),
-      ),
-      direction: DismissDirection.endToStart,
-      onDismissed: (direction) {
-        Provider.of<NotesProvider>(context, listen: false).deleteNote(note.id);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${note.title} deleted'),
-            action: SnackBarAction(
-              label: 'Undo',
-              onPressed: () {
-                Provider.of<NotesProvider>(context, listen: false).addNote(note);
-              },
+    return Card(
+      elevation: 3,
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => NoteDetailScreen(noteId: note.id),
             ),
-          ),
-        );
-      },
-      child: Card(
-        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        child: ListTile(
-          title: Text(
-            note.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              decoration: note.isTimerCompleted ? TextDecoration.lineThrough : null,
-            ),
-          ),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                note.content,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 4),
-              if (note.timerDuration > 0)
-                Row(
-                  children: [
-                    Icon(
-                      Icons.timer,
-                      size: 16,
-                      color: note.isTimerActive
-                          ? Colors.green
-                          : note.isTimerCompleted
-                              ? Colors.red
-                              : Colors.grey,
+          );
+        },
+        child: Stack(
+          children: [
+            // Main note content
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title
+                  Text(
+                    note.title,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      decoration: note.isTimerCompleted ? TextDecoration.lineThrough : null,
                     ),
-                    const SizedBox(width: 4),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // Timer section (if exists)
+                  if (note.timerDuration > 0) 
+                    _buildTimerSection(context),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Note content preview
+                  Text(
+                    note.content,
+                    style: const TextStyle(fontSize: 16),
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  
+                  const SizedBox(height: 8),
+                  
+                  // Date information
+                  Text(
+                    'Created: ${TimerUtils.formatDateTime(note.createdAt)}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  if (note.updatedAt != null) 
                     Text(
-                      note.isTimerActive
-                          ? TimerUtils.formatDuration(note.remainingTime)
-                          : TimerUtils.formatDurationText(note.timerDuration),
+                      'Updated: ${TimerUtils.formatDateTime(note.updatedAt!)}',
                       style: TextStyle(
                         fontSize: 12,
-                        color: note.isTimerActive
-                            ? Colors.green
-                            : note.isTimerCompleted
-                                ? Colors.red
-                                : Colors.grey,
-                        fontWeight: FontWeight.w500,
+                        color: Colors.grey.shade600,
                       ),
                     ),
-                  ],
-                ),
-            ],
-          ),
-          trailing: note.timerDuration > 0
-              ? IconButton(
-                  icon: Icon(
-                    note.isTimerActive ? Icons.pause : Icons.play_arrow,
-                    color: note.isTimerActive ? Colors.green : Colors.blue,
-                  ),
-                  onPressed: () {
-                    final notesProvider =
-                        Provider.of<NotesProvider>(context, listen: false);
+                ],
+              ),
+            ),
+            
+            // Delete button in top right
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                icon: const Icon(Icons.close, size: 20),
+                color: Colors.grey.shade600,
+                onPressed: () => _showDeleteDialog(context),
+              ),
+            ),
+            
+            // Play/pause button for timers
+            if (note.timerDuration > 0)
+              Positioned(
+                bottom: 12,
+                right: 12,
+                child: FloatingActionButton.small(
+                  heroTag: "btn-${note.id}",
+                  backgroundColor: note.isTimerActive 
+                      ? Colors.orange 
+                      : note.isTimerCompleted 
+                          ? Colors.grey 
+                          : Colors.green,
+                  onPressed: note.isTimerCompleted ? null : () {
+                    final notesProvider = Provider.of<NotesProvider>(context, listen: false);
                     if (note.isTimerActive) {
                       notesProvider.pauseTimer(note.id);
                     } else {
                       notesProvider.startTimer(note.id);
                     }
                   },
-                )
-              : null,
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => NoteDetailScreen(noteId: note.id),
+                  child: Icon(
+                    note.isTimerActive ? Icons.pause : Icons.play_arrow,
+                    color: Colors.white,
+                  ),
+                ),
               ),
-            );
-          },
+          ],
         ),
+      ),
+    );
+  }
+  
+  Widget _buildTimerSection(BuildContext context) {
+    final bool isActive = note.isTimerActive;
+    final bool isCompleted = note.isTimerCompleted;
+    
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+      decoration: BoxDecoration(
+        color: isCompleted
+            ? Colors.red.withOpacity(0.1)
+            : isActive
+                ? Colors.green.withOpacity(0.1)
+                : Colors.blue.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.timer,
+            size: 28,
+            color: isCompleted
+                ? Colors.red
+                : isActive
+                    ? Colors.green
+                    : Colors.blue,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isActive 
+                      ? 'Running' 
+                      : isCompleted 
+                          ? 'Completed' 
+                          : 'Timer set',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isCompleted
+                        ? Colors.red
+                        : isActive
+                            ? Colors.green
+                            : Colors.blue,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  isActive
+                      ? TimerUtils.formatDuration(note.remainingTime)
+                      : TimerUtils.formatDurationText(note.timerDuration),
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: isCompleted
+                        ? Colors.red
+                        : isActive
+                            ? Colors.green
+                            : Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  void _showDeleteDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Note'),
+        content: const Text('Are you sure you want to delete this note?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Provider.of<NotesProvider>(context, listen: false).deleteNote(note.id);
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${note.title} deleted'),
+                  action: SnackBarAction(
+                    label: 'Undo',
+                    onPressed: () {
+                      Provider.of<NotesProvider>(context, listen: false).addNote(note);
+                    },
+                  ),
+                ),
+              );
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
       ),
     );
   }
