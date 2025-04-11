@@ -99,11 +99,13 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     final initialMinutes = (_timerDuration % 3600) ~/ 60;
     final initialSeconds = _timerDuration % 60;
     
-    // Time input for numpad entry
+    // Format initial value as HHMMSS (without leading zeros)
     String timeInput = '';
-    // Format initial value as HHMMSS (padded with zeros)
     if (_timerDuration > 0) {
-      timeInput = '${initialHours.toString().padLeft(2, '0')}${initialMinutes.toString().padLeft(2, '0')}${initialSeconds.toString().padLeft(2, '0')}';
+      // Pre-fill with the existing timer value to allow adding to it
+      timeInput = '${initialHours}${initialMinutes.toString().padLeft(2, '0')}${initialSeconds.toString().padLeft(2, '0')}';
+      // Remove leading zeros which could prevent adding more digits
+      timeInput = timeInput.replaceFirst(RegExp(r'^0+'), '');
     }
     
     await showDialog(
@@ -111,14 +113,14 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setStateDialog) {
           // Format the current input for display
-          String displayTime = '00:00:00';
-          if (timeInput.isNotEmpty) {
-            final paddedInput = timeInput.padLeft(6, '0');
-            final hours = paddedInput.substring(0, 2);
-            final minutes = paddedInput.substring(2, 4);
-            final seconds = paddedInput.substring(4, 6);
-            displayTime = '$hours:$minutes:$seconds';
-          }
+          String displayTime;
+          
+          // Always format the display with proper formatting
+          final paddedInput = timeInput.padLeft(6, '0');
+          final hours = paddedInput.substring(0, 2);
+          final minutes = paddedInput.substring(2, 4);
+          final seconds = paddedInput.substring(4, 6);
+          displayTime = '$hours:$minutes:$seconds';
 
           return AlertDialog(
             title: const Text('Set Timer Duration'),
@@ -141,7 +143,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
                 
                 // Numpad
                 Column(
@@ -344,7 +346,8 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       try {
         await notesProvider.deleteNote(widget.noteId!);
         if (mounted) {
-          Navigator.of(context).pop();
+          // Navigate back to the home screen (notes list) instead of just popping once
+          Navigator.of(context).popUntil((route) => route.isFirst);
         }
       } finally {
         if (mounted) {
