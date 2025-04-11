@@ -254,22 +254,28 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
               ),
               TextButton(
                 onPressed: () {
-                  // Convert input time to seconds
+                  // Convert input time to total seconds
                   final paddedInput = timeInput.padLeft(6, '0');
-                  final hours = int.tryParse(paddedInput.substring(0, 2)) ?? 0;
-                  final minutes = int.tryParse(paddedInput.substring(2, 4)) ?? 0;
-                  final seconds = int.tryParse(paddedInput.substring(4, 6)) ?? 0;
+                  int hours = int.tryParse(paddedInput.substring(0, 2)) ?? 0;
+                  int minutes = int.tryParse(paddedInput.substring(2, 4)) ?? 0;
+                  int seconds = int.tryParse(paddedInput.substring(4, 6)) ?? 0;
                   
-                  // Check for valid time values
-                  if (hours > 23 || minutes > 59 || seconds > 59) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Invalid time format. Hours must be 0-23, minutes and seconds must be 0-59.')),
-                    );
-                    return;
+                  // Normalize time values (handle overflow)
+                  if (seconds >= 60) {
+                    minutes += seconds ~/ 60;
+                    seconds %= 60;
                   }
                   
+                  if (minutes >= 60) {
+                    hours += minutes ~/ 60;
+                    minutes %= 60;
+                  }
+                  
+                  // Calculate total seconds
+                  final totalSeconds = (hours * 3600) + (minutes * 60) + seconds;
+                  
                   setState(() {
-                    _timerDuration = (hours * 3600) + (minutes * 60) + seconds;
+                    _timerDuration = totalSeconds;
                   });
                   Navigator.of(ctx).pop();
                 },
@@ -310,12 +316,60 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     super.dispose();
   }
 
+  Future<void> _confirmDelete() async {
+    final notesProvider = Provider.of<NotesProvider>(context, listen: false);
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Note'),
+        content: const Text('Are you sure you want to delete this note?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete == true) {
+      setState(() {
+        _isLoading = true;
+      });
+
+      try {
+        await notesProvider.deleteNote(widget.noteId!);
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.noteId == null ? 'Add Note' : 'Edit Note'),
         actions: [
+          // Only show delete button for existing notes
+          if (widget.noteId != null)
+            IconButton(
+              icon: const Icon(Icons.delete),
+              color: Colors.red,
+              onPressed: _confirmDelete,
+              tooltip: 'Delete Note',
+            ),
           IconButton(
             icon: const Icon(Icons.save),
             onPressed: _isLoading ? null : _saveNote,
