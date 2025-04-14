@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import '../services/background_task.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import '../services/background_service.dart';
 import 'timer_utils.dart';
 import 'note_model.dart';
 
@@ -15,6 +16,9 @@ class NotificationService {
   // Flutter Local Notifications plugin
   final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin = 
       FlutterLocalNotificationsPlugin();
+      
+  // Background service
+  late final FlutterBackgroundService _backgroundService;
   
   // Channel IDs
   static const String timerChannelId = 'notesia_timer_channel';
@@ -62,6 +66,10 @@ class NotificationService {
         ),
       );
     }
+    
+    // Initialize background service
+    await initBackgroundService();
+    _backgroundService = FlutterBackgroundService();
   }
   
   void _onNotificationTapped(NotificationResponse details) {
@@ -94,19 +102,48 @@ class NotificationService {
     return (iosResult ?? false) || (androidResult ?? false);
   }
   
-  // Start timer notification with background task
+  // Start timer notification with background service
   void startTimerNotification(NoteModel note) async {
+    if (!note.isTimerActive || note.timerStartedAt == null) {
+      // Timer is not active, nothing to do
+      return;
+    }
+    
     // Cancel existing timer if there is one
     cancelTimerNotification(note.id);
     
     // Save reference to active note
     _activeNotes[note.id] = note;
     
-    // Show initial notification
+    // Show initial notification immediately
     await _showTimerRunningNotification(note.id, note.title, note.remainingTime);
     
-    // Register with background task
-    await addActiveTimer(note.id, note.title, note.timerDuration);
+    // Start the background service
+    await _backgroundService.startService();
+    
+    // Start timer in background service
+    _backgroundService.invoke('startTimer', {
+      'noteId': note.id,
+      'title': note.title,
+      'timerDuration': note.timerDuration,
+      'startTime': note.timerStartedAt!.millisecondsSinceEpoch,
+    });
+    
+    // Also update UI every second while app is in foreground
+    Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!_activeNotes.containsKey(note.id)) {
+        timer.cancel();
+        return;
+      }
+      
+      if (_activeNotes[note.id]!.isTimerCompleted) {
+        cancelTimerNotification(note.id);
+        timer.cancel();
+        return;
+      }
+      
+      updateTimerNotification(_activeNotes[note.id]!);
+    });
   }
   
   // Update timer notification manually (for immediate UI updates)
@@ -122,20 +159,21 @@ class NotificationService {
       timerChannelId,
       timerChannelName,
       channelDescription: timerChannelDesc,
-      importance: Importance.low,
-      priority: Priority.low,
+      importance: Importance.high,  // Increased importance so it's visible
+      priority: Priority.high,      // Increased priority so it's visible
       playSound: false,
       enableVibration: false,
       onlyAlertOnce: true,
       ongoing: true,
       autoCancel: false,
+      visibility: NotificationVisibility.public, // Make it visible on lock screen
     );
     
     final NotificationDetails notificationDetails = NotificationDetails(android: androidDetails);
     
     await _flutterLocalNotificationsPlugin.show(
       id.hashCode,
-      title,
+      "Timer: $title",  // Add "Timer:" prefix to make it clear what the notification is
       TimerUtils.formatDuration(remainingSeconds),
       notificationDetails,
       payload: id,
@@ -147,8 +185,10 @@ class NotificationService {
     // Remove from active notes
     _activeNotes.remove(noteId);
     
-    // Cancel timer in background task
-    await removeActiveTimer(noteId);
+    // Stop timer in background service
+    _backgroundService.invoke('stopTimer', {
+      'noteId': noteId,
+    });
     
     // Cancel immediate notification
     await _flutterLocalNotificationsPlugin.cancel(noteId.hashCode);
@@ -157,13 +197,24 @@ class NotificationService {
   // Cancel all timer notifications
   void cancelAllTimerNotifications() async {
     _activeNotes.clear();
-    await removeAllActiveTimers();
+    
+    // Stop all timers in background service
+    _backgroundService.invoke('stopAllTimers');
+    
     await _flutterLocalNotificationsPlugin.cancelAll();
   }
   
-  // Sync with active timers from background task
+  // Sync with active timers from background service
   Future<void> syncWithBackgroundService() async {
-    // Nothing to do here now - workmanager handles persistence
+    _backgroundService.invoke('checkActiveTimers');
+    
+    // Listen for response
+    _backgroundService.on('updateActiveTimers').listen((event) {
+      if (event != null && event['timers'] != null) {
+        final timers = event['timers'] as Map<String, dynamic>;
+        // Update local timers as needed
+      }
+    });
   }
   
   // Handle notification actions

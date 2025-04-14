@@ -19,6 +19,11 @@ const String NOTIFICATION_CHANNEL_ID = 'notesia_timer_service';
 const String NOTIFICATION_CHANNEL_NAME = 'Notesia Timer Service';
 const String NOTIFICATION_CHANNEL_DESC = 'Service to keep timer notifications running';
 
+// Timer notification channel
+const String TIMER_CHANNEL_ID = 'notesia_timer_channel';
+const String TIMER_CHANNEL_NAME = 'Timer Notifications';
+const String TIMER_CHANNEL_DESC = 'Shows active timer notifications';
+
 // Service initialization
 Future<void> initBackgroundService() async {
   // Create notification channel first
@@ -36,6 +41,18 @@ Future<void> initBackgroundService() async {
   await flutterLocalNotificationsPlugin
       .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
       ?.createNotificationChannel(channel);
+      
+  // Also create the timer notification channel
+  await flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          TIMER_CHANNEL_ID,
+          TIMER_CHANNEL_NAME,
+          description: TIMER_CHANNEL_DESC,
+          importance: Importance.high,
+        ),
+      );
 
   final service = FlutterBackgroundService();
 
@@ -46,8 +63,8 @@ Future<void> initBackgroundService() async {
       autoStart: false,
       isForegroundMode: true,
       notificationChannelId: NOTIFICATION_CHANNEL_ID,
-      initialNotificationTitle: 'Timer Service',
-      initialNotificationContent: 'Keeping your timers active',
+      initialNotificationTitle: '',  // Empty title, notification will be invisible
+      initialNotificationContent: '',  // Empty content, notification will be invisible
       foregroundServiceNotificationId: 888,
     ),
     iosConfiguration: IosConfiguration(
@@ -77,7 +94,7 @@ void onStart(ServiceInstance service) async {
     NOTIFICATION_CHANNEL_ID,
     NOTIFICATION_CHANNEL_NAME,
     description: NOTIFICATION_CHANNEL_DESC,
-    importance: Importance.low,
+    importance: Importance.min,  // Minimum importance
   );
 
   await flutterLocalNotificationsPlugin
@@ -86,10 +103,10 @@ void onStart(ServiceInstance service) async {
   
   // Create timer notifications channel
   const AndroidNotificationChannel timerChannel = AndroidNotificationChannel(
-    'notesia_timer_channel', 
-    'Timer Notifications',
-    description: 'Shows active timer notifications',
-    importance: Importance.low,
+    TIMER_CHANNEL_ID, 
+    TIMER_CHANNEL_NAME,
+    description: TIMER_CHANNEL_DESC,
+    importance: Importance.high,
   );
 
   await flutterLocalNotificationsPlugin
@@ -99,6 +116,11 @@ void onStart(ServiceInstance service) async {
   // For Android, we need to use this to keep the service running
   if (service is AndroidServiceInstance) {
     try {
+      // Use an empty notification for the background service
+      service.setForegroundNotificationInfo(
+        title: '',  // Empty title makes notification invisible
+        content: '',  // Empty content makes notification invisible
+      );
       service.setAsForegroundService();
       service.setAutoStartOnBootMode(true);
     } catch (e) {
@@ -133,7 +155,10 @@ void onStart(ServiceInstance service) async {
         final noteId = event['noteId'] as String;
         final title = event['title'] as String;
         final timerDuration = event['timerDuration'] as int;
-        final startTime = DateTime.now().millisecondsSinceEpoch;
+        final startTime = event['startTime'] as int; // Get the startTime from the event
+        
+        // Debug print to ensure we're receiving the data
+        print('Background service received startTimer: $noteId, $title, $timerDuration, $startTime');
 
         activeTimers[noteId] = ActiveTimer(
           id: noteId,
@@ -144,6 +169,13 @@ void onStart(ServiceInstance service) async {
 
         // Save active timers to storage
         await saveActiveTimers(activeTimers);
+        
+        // Show the notification immediately
+        _showTimerRunningNotification(
+          flutterLocalNotificationsPlugin, 
+          activeTimers[noteId]!, 
+          activeTimers[noteId]!.getRemainingTime()
+        );
       } catch (e) {
         print('Error starting timer: $e');
       }
@@ -233,16 +265,17 @@ void _showTimerRunningNotification(
   int remainingSeconds,
 ) {
   final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-    'notesia_timer_channel',
-    'Timer Notifications',
-    channelDescription: 'Shows active timer notifications',
-    importance: Importance.low,
-    priority: Priority.low,
+    TIMER_CHANNEL_ID,
+    TIMER_CHANNEL_NAME,
+    channelDescription: TIMER_CHANNEL_DESC,
+    importance: Importance.high,
+    priority: Priority.high,
     playSound: false,
     enableVibration: false,
     onlyAlertOnce: true,
     ongoing: true,
     autoCancel: false,
+    visibility: NotificationVisibility.public, // Make sure it's visible on lock screen
   );
 
   final NotificationDetails notificationDetails = NotificationDetails(
@@ -251,7 +284,7 @@ void _showTimerRunningNotification(
 
   flutterLocalNotificationsPlugin.show(
     timer.id.hashCode,
-    timer.title,
+    "Timer: ${timer.title}",
     TimerUtils.formatDuration(remainingSeconds),
     notificationDetails,
     payload: timer.id,
@@ -263,14 +296,15 @@ void _showTimerCompletedNotification(
   ActiveTimer timer,
 ) {
   final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-    'notesia_timer_channel',
-    'Timer Notifications',
-    channelDescription: 'Shows active timer notifications',
+    TIMER_CHANNEL_ID,
+    TIMER_CHANNEL_NAME,
+    channelDescription: TIMER_CHANNEL_DESC,
     importance: Importance.high,
     priority: Priority.high,
     playSound: true,
     enableVibration: true,
     autoCancel: true,
+    visibility: NotificationVisibility.public,
   );
 
   final NotificationDetails notificationDetails = NotificationDetails(
@@ -338,6 +372,6 @@ class ActiveTimer {
   int getRemainingTime() {
     final elapsedMillis = DateTime.now().millisecondsSinceEpoch - startTime;
     final elapsedSeconds = elapsedMillis ~/ 1000;
-    return duration - elapsedSeconds;
+    return duration - elapsedSeconds > 0 ? duration - elapsedSeconds : 0;
   }
 }
