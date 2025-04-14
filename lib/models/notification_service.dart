@@ -173,7 +173,7 @@ class NotificationService {
     
     await _flutterLocalNotificationsPlugin.show(
       id.hashCode,
-      "Timer: $title",  // Add "Timer:" prefix to make it clear what the notification is
+      title,  // Just use the title without the "Timer:" prefix
       TimerUtils.formatDuration(remainingSeconds),
       notificationDetails,
       payload: id,

@@ -284,7 +284,7 @@ void _showTimerRunningNotification(
 
   flutterLocalNotificationsPlugin.show(
     timer.id.hashCode,
-    "Timer: ${timer.title}",
+    timer.title,  // Just use the title without the "Timer:" prefix
     TimerUtils.formatDuration(remainingSeconds),
     notificationDetails,
     payload: timer.id,
