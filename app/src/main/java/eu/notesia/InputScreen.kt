@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,7 +21,7 @@ import androidx.navigation.NavHostController
 @Composable
 fun InputScreen(navController: NavHostController) {
     var itemName by remember { mutableStateOf("") }
-    var timerValue by remember { mutableStateOf("") }
+    var timerValue by remember { mutableStateOf("00:00:00") }
     var showNumpad by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -37,7 +38,6 @@ fun InputScreen(navController: NavHostController) {
         },
         floatingActionButton = {
             FloatingActionButton(onClick = {
-                // Add the item and navigate back to the main screen
                 navController.previousBackStackEntry?.savedStateHandle?.set("newItem", itemName)
                 navController.previousBackStackEntry?.savedStateHandle?.set("timerValue", timerValue)
                 navController.popBackStack()
@@ -71,8 +71,8 @@ fun InputScreen(navController: NavHostController) {
                     TextField(
                         value = timerValue,
                         onValueChange = { timerValue = it },
-                        label = { Text("Timer Value (seconds)") },
-                        keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Number),
+                        label = { Text("Timer Value (HH:MM:SS)") },
+                        keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Text),
                         modifier = Modifier.weight(1f),
                         enabled = false
                     )
@@ -97,7 +97,7 @@ fun InputScreen(navController: NavHostController) {
 
 @Composable
 fun Numpad(onValueChange: (String) -> Unit, onClose: () -> Unit) {
-    var inputValue by remember { mutableStateOf("") }
+    var inputValue by remember { mutableStateOf("00:00:00") }
 
     Dialog(onDismissRequest = onClose) {
         Card(
@@ -122,7 +122,8 @@ fun Numpad(onValueChange: (String) -> Unit, onClose: () -> Unit) {
                     value = inputValue,
                     onValueChange = { inputValue = it },
                     label = { Text("Enter Time (HH:MM:SS)") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = false
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Column(
@@ -141,30 +142,102 @@ fun Numpad(onValueChange: (String) -> Unit, onClose: () -> Unit) {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            row.forEach { buttonText ->
-                                Button(
-                                    onClick = {
-                                        if (inputValue.length < 8) {
-                                            inputValue += buttonText
-                                        }
-                                    },
-                                    modifier = Modifier.size(64.dp)
-                                ) {
-                                    Text(buttonText)
+                            row.forEach { button ->
+                                Button(onClick = {
+                                    inputValue = updateTime(inputValue, button)
+                                }) {
+                                    Text(button)
                                 }
                             }
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
                     }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = {
-                    onValueChange(inputValue)
-                    onClose()
-                }) {
-                    Text("OK")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = {
+                        onValueChange(inputValue)
+                        onClose()
+                    }) {
+                        Text("OK")
+                    }
                 }
             }
         }
     }
+}
+
+fun updateTime(currentTime: String, newDigit: String): String {
+    val parts = currentTime.split(":")
+    val hours = parts[0].toInt()
+    val minutes = parts[1].toInt()
+    val seconds = parts[2].toInt()
+
+    val newSeconds = seconds % 10 * 10 + newDigit.toInt()
+    val newMinutes = if (newSeconds >= 60) minutes + 1 else minutes
+    val newHours = if (newMinutes >= 60) hours + 1 else hours
+
+    return String.format("%02d:%02d:%02d", newHours % 24, newMinutes % 60, newSeconds % 60)
+}
+
+package eu.notesia
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavHostController
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainScreen(navController: NavHostController) {
+    var items by remember { mutableStateOf(listOf<String>()) }
+
+    // Handle the result from the input screen
+    val newItem = navController.currentBackStackEntry?.savedStateHandle?.get<String>("newItem")
+    val timerValue = navController.currentBackStackEntry?.savedStateHandle?.get<String>("timerValue")
+    if (newItem != null && timerValue != null) {
+        items = items + "$newItem ($timerValue)"
+        navController.currentBackStackEntry?.savedStateHandle?.remove<String>("newItem")
+        navController.currentBackStackEntry?.savedStateHandle?.remove<String>("timerValue")
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Active Timers") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = {
+                navController.navigate("input")
+            }) {
+                Icon(Icons.Default.Add, contentDescription = "Add")
+            }
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp)
+        ) {
+            items(items) { item ->
+                Text(text = item, modifier = Modifier.padding(8.dp))
+            }
+        }
+    }
+}
+    val hours = parts[0].toInt()
+    val minutes = parts[1].toInt()
+    val seconds = parts[2].toInt()
+
+    val newSeconds = seconds % 10 * 10 + newDigit.toInt()
+    val newMinutes = if (newSeconds >= 60) minutes + 1 else minutes
+    val newHours = if (newMinutes >= 60) hours + 1 else hours
+
+    return String.format("%02d:%02d:%02d", newHours % 24, newMinutes % 60, newSeconds % 60)
 }
