@@ -8,19 +8,23 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(navController: NavHostController) {
-    var items by remember { mutableStateOf(listOf<String>()) }
+    val context = LocalContext.current
+    val dbHelper = remember { DatabaseHelper(context) }
+    var items by remember { mutableStateOf(dbHelper.getAllItems()) }
 
     // Handle the result from the input screen
     val newItem = navController.currentBackStackEntry?.savedStateHandle?.get<String>("newItem")
     val timerValue = navController.currentBackStackEntry?.savedStateHandle?.get<String>("timerValue")
     if (newItem != null && timerValue != null) {
-        items = items + "$newItem ($timerValue)"
+        dbHelper.addItem(newItem, timerValue)
+        items = dbHelper.getAllItems()
         navController.currentBackStackEntry?.savedStateHandle?.remove<String>("newItem")
         navController.currentBackStackEntry?.savedStateHandle?.remove<String>("timerValue")
     }
@@ -47,7 +51,7 @@ fun MainScreen(navController: NavHostController) {
                 .padding(16.dp)
         ) {
             items(items) { item ->
-                Text(text = item, modifier = Modifier.padding(8.dp))
+                Text(text = "${item.first} (${item.second})", modifier = Modifier.padding(8.dp))
             }
         }
     }
